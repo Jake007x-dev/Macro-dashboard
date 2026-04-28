@@ -1609,8 +1609,8 @@ function renderMarkdown(text) {{
     .replace(italicRe, '<em>$1</em>')
     .replace(headerRe, '<p style="font-weight:700;margin:8px 0 4px;">$1</p>')
     .replace(bulletRe, '<div style="padding-left:10px;margin:3px 0;">• $1</div>')
-    .replace(/\n\n/g, '</p><p style="margin:6px 0">')
-    .replace(/\n/g, '<br/>');
+    .replace(/\\n\\n/g, '</p><p style="margin:6px 0">')
+    .replace(/\\n/g, '<br/>');
 }}
 
 function appendAIMsg(role, text) {{
