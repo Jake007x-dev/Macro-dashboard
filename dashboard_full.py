@@ -5,6 +5,7 @@ import yfinance as yf
 import numpy as np
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from flask import Flask, jsonify, request as flask_request
 import os
@@ -72,30 +73,36 @@ def get_fred_history(series_id, limit=24):
         return []
 
 def fetch_macro():
-    return [
-        get_fred("FEDFUNDS",    "Fed Funds Rate (%)"),
-        get_fred("CPIAUCSL",    "CPI Index"),
-        get_fred("CPILFESL",    "Core CPI"),
-        get_fred("UNRATE",      "Unemployment (%)"),
-        get_fred("GDP",         "GDP (B USD)"),
-        get_fred("RSAFS",       "Retail Sales (M USD)"),
-        get_fred("HOUST",       "Housing Starts (K)"),
-        get_fred("DCOILWTICO",  "WTI Crude ($/bbl)"),
-        get_fred("T10Y2Y",      "10Y-2Y Spread"),
-        get_fred("T10YIE",      "10Y Breakeven Inflation"),
-        get_fred("M2SL",        "M2 Money Supply (B)"),
-        get_fred("UMCSENT",     "Consumer Sentiment"),
-        get_fred("PAYEMS",      "Nonfarm Payrolls (K)"),
-        get_fred("INDPRO",      "Industrial Production"),
-        get_fred("MORTGAGE30US","30Y Mortgage Rate (%)"),
+    series = [
+        ("FEDFUNDS",     "Fed Funds Rate (%)"),
+        ("CPIAUCSL",     "CPI Index"),
+        ("CPILFESL",     "Core CPI"),
+        ("UNRATE",       "Unemployment (%)"),
+        ("GDP",          "GDP (B USD)"),
+        ("RSAFS",        "Retail Sales (M USD)"),
+        ("HOUST",        "Housing Starts (K)"),
+        ("DCOILWTICO",   "WTI Crude ($/bbl)"),
+        ("T10Y2Y",       "10Y-2Y Spread"),
+        ("T10YIE",       "10Y Breakeven Inflation"),
+        ("M2SL",         "M2 Money Supply (B)"),
+        ("UMCSENT",      "Consumer Sentiment"),
+        ("PAYEMS",       "Nonfarm Payrolls (K)"),
+        ("INDPRO",       "Industrial Production"),
+        ("MORTGAGE30US", "30Y Mortgage Rate (%)"),
     ]
+    with ThreadPoolExecutor(max_workers=15) as ex:
+        futures = {ex.submit(get_fred, sid, lbl): i for i, (sid, lbl) in enumerate(series)}
+        results = [None] * len(series)
+        for f in as_completed(futures):
+            results[futures[f]] = f.result()
+    return results
 
 def fetch_chart_data():
     print("  Fetching chart history...")
-    return {
-        "fed": get_fred_history("FEDFUNDS", 24),
-        "cpi": get_fred_history("CPIAUCSL", 24),
-    }
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_fed = ex.submit(get_fred_history, "FEDFUNDS", 24)
+        f_cpi = ex.submit(get_fred_history, "CPIAUCSL", 24)
+        return {"fed": f_fed.result(), "cpi": f_cpi.result()}
 
 # ── NEWS ──────────────────────────────────────────────────────────────────────
 def fetch_news():
@@ -118,21 +125,47 @@ def fetch_news():
             "Chrome/122.0.0.0 Safari/537.36"
         )
     }
-    headlines = []
-    for source, url in feeds:
+
+    def _fetch_feed(source, url):
         try:
-            resp = requests.get(url, timeout=10, headers=_headers)
+            resp = requests.get(url, timeout=8, headers=_headers)
             feed = feedparser.parse(resp.content)
+            items = []
             for entry in feed.entries[:5]:
                 title = getattr(entry, "title", None) or entry.get("title", "")
                 link  = getattr(entry, "link",  None) or entry.get("link",  "#")
                 if title:
-                    headlines.append({"source": source, "title": title, "link": link})
+                    items.append({"source": source, "title": title, "link": link})
+            return items
         except:
-            pass
+            return []
+
+    headlines = []
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(_fetch_feed, src, url) for src, url in feeds]
+        for f in as_completed(futures):
+            headlines.extend(f.result())
     return headlines[:36]
 
 # ── MARKETS ───────────────────────────────────────────────────────────────────
+def _fetch_one_ticker(name, ticker):
+    for _ in range(2):
+        try:
+            hist = yf.Ticker(ticker).history(period="5d")
+            if len(hist) >= 2:
+                prev = hist["Close"].iloc[-2]
+                curr = hist["Close"].iloc[-1]
+                chg  = ((curr - prev) / prev) * 100
+                return name, {
+                    "name": name, "price": f"{curr:,.2f}",
+                    "chg_str": f"{'▲' if chg>=0 else '▼'} {abs(chg):.2f}%",
+                    "chg_num": f"{'▲' if chg>=0 else '▼'}{abs(chg):.2f}%",
+                    "up": chg >= 0, "chg_val": round(chg, 2)
+                }
+        except:
+            pass
+    return name, {"name": name, "price": "N/A", "chg_str": "—", "chg_num": "—", "up": True, "chg_val": 0}
+
 def fetch_markets():
     categories = {
         "US Equities":   {"S&P 500":"^GSPC","Nasdaq 100":"^NDX","Dow Jones":"^DJI","Russell 2000":"^RUT","VIX":"^VIX"},
@@ -142,48 +175,50 @@ def fetch_markets():
         "Currencies":    {"USD Index":"DX-Y.NYB","EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"JPY=X","USD/CNY":"CNY=X","USD/INR":"INR=X"},
         "Crypto":        {"Bitcoin":"BTC-USD","Ethereum":"ETH-USD","Solana":"SOL-USD"},
     }
-    results = {}
+    # Flatten all tickers, fetch all in parallel, then re-group
+    all_tasks = []  # (cat, name, ticker)
     for cat, tickers in categories.items():
-        results[cat] = []
         for name, ticker in tickers.items():
-            success = False
-            for attempt in range(3):
-                try:
-                    t = yf.Ticker(ticker)
-                    hist = t.history(period="5d")
-                    if len(hist) >= 2:
-                        prev = hist["Close"].iloc[-2]
-                        curr = hist["Close"].iloc[-1]
-                        chg  = ((curr - prev) / prev) * 100
-                        results[cat].append({
-                            "name": name, "price": f"{curr:,.2f}",
-                            "chg_str": f"{'▲' if chg>=0 else '▼'} {abs(chg):.2f}%",
-                            "chg_num": f"{'▲' if chg>=0 else '▼'}{abs(chg):.2f}%",
-                            "up": chg >= 0, "chg_val": round(chg, 2)
-                        })
-                        success = True
-                        break
-                except:
-                    pass
-            if not success:
-                results[cat].append({"name":name,"price":"N/A","chg_str":"—","chg_num":"—","up":True,"chg_val":0})
-    return results
+            all_tasks.append((cat, name, ticker))
+
+    cat_order = {n: i for i, n in enumerate(categories[list(categories.keys())[0]])}
+    results = {cat: {} for cat in categories}
+
+    with ThreadPoolExecutor(max_workers=30) as ex:
+        futures = {ex.submit(_fetch_one_ticker, name, ticker): (cat, name)
+                   for cat, name, ticker in all_tasks}
+        for f in as_completed(futures):
+            cat, _ = futures[f]
+            name, data = f.result()
+            results[cat][name] = data
+
+    # Restore original order per category
+    ordered = {}
+    for cat, tickers in categories.items():
+        ordered[cat] = [results[cat].get(name, {"name":name,"price":"N/A","chg_str":"—","chg_num":"—","up":True,"chg_val":0})
+                        for name in tickers]
+    return ordered
 
 def fetch_sparklines():
     print("  Fetching sparkline data...")
     tickers = {"S&P 500":"^GSPC","10Y Treasury":"^TNX","Crude Oil":"CL=F","Gold":"GC=F"}
-    result = {}
-    for name, ticker in tickers.items():
+
+    def _fetch(name, ticker):
         try:
-            t = yf.Ticker(ticker)
-            hist = t.history(period="30d")
+            hist = yf.Ticker(ticker).history(period="30d")
             if len(hist) > 0:
-                result[name] = {
+                return name, {
                     "prices": [round(float(v), 2) for v in hist["Close"].tolist()],
                     "dates":  [str(d.date()) for d in hist.index.tolist()]
                 }
         except:
-            result[name] = {"prices": [], "dates": []}
+            pass
+        return name, {"prices": [], "dates": []}
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for name, data in ex.map(lambda kv: _fetch(*kv), tickers.items()):
+            result[name] = data
     return result
 
 # ── AGENT RUNNER ──────────────────────────────────────────────────────────────
@@ -330,28 +365,32 @@ def get_or_build_html():
             return _cache["html"]
         _building = True
         try:
-            print("[ 1/5 ] Fetching FRED macro indicators...")
-            macro = fetch_macro()
-            print("[ 2/5 ] Fetching news headlines...")
-            headlines = fetch_news()
-            print("[ 3/5 ] Fetching market prices...")
-            markets = fetch_markets()
-            print("[ 4/5 ] Fetching chart history...")
-            chart_data = fetch_chart_data()
-            sparklines = fetch_sparklines()
-            print("[ 5/5 ] Running AI analysis...")
+            print("[ 1/4 ] Fetching all data in parallel...")
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                f_macro      = ex.submit(fetch_macro)
+                f_news       = ex.submit(fetch_news)
+                f_markets    = ex.submit(fetch_markets)
+                f_chart      = ex.submit(fetch_chart_data)
+                f_sparklines = ex.submit(fetch_sparklines)
+                macro      = f_macro.result()
+                headlines  = f_news.result()
+                markets    = f_markets.result()
+                chart_data = f_chart.result()
+                sparklines = f_sparklines.result()
+            print("[ 2/4 ] Data fetched. Running AI analysis...")
             try:
                 analysis = run_all_agents(macro, headlines, markets)
             except Exception as e:
                 print(f"  Analysis error: {e}")
                 analysis = {k: "{}" if k not in ("impact_cards","geo_risk","cb_watch","sector_map","news_bias") else "[]"
                             for k in ("macro_regime","impact_cards","geo_risk","cb_watch","sector_map","sentiment","strategist","news_bias")}
+            print("[ 3/4 ] Building HTML...")
             html = build_html(macro, headlines, markets, analysis, chart_data, sparklines)
             _cache["html"] = html
             _cache["macro"] = macro
             _cache["headlines"] = headlines
             _cache["ts"] = time.time()
-            print("  Done.")
+            print("[ 4/4 ] Done. Dashboard ready.")
         finally:
             _building = False
     return _cache["html"]
