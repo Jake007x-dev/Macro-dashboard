@@ -1042,9 +1042,11 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
 #ai-chat-close{{background:none;border:none;color:var(--sub);font-size:20px;cursor:pointer;}}
 #ai-chat-close:hover{{color:var(--text);}}
 #ai-chat-msgs{{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;}}
-.ai-msg{{max-width:88%;padding:10px 13px;border-radius:12px;font-size:12px;line-height:1.6;}}
+.ai-msg{{max-width:90%;padding:11px 14px;border-radius:12px;font-size:13px;line-height:1.65;}}
 .ai-msg.user{{align-self:flex-end;background:rgba(29,116,245,.22);border:1px solid rgba(29,116,245,.3);}}
-.ai-msg.ai{{align-self:flex-start;background:var(--s2);border:1px solid var(--border);color:#c0c8d0;}}
+.ai-msg.ai{{align-self:flex-start;background:var(--s2);border:1px solid var(--border);color:#d0d8e4;}}
+.ai-msg.ai strong{{color:#f1f5f9;}}
+.ai-msg.ai em{{color:#94a3b8;font-style:italic;}}
 .ai-msg.err{{align-self:flex-start;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:var(--red);}}
 .ai-quick{{padding:10px 14px;display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid var(--border);}}
 .ai-qbtn{{font-size:11px;padding:5px 10px;border-radius:6px;cursor:pointer;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);color:var(--blue);transition:.15s;}}
@@ -1595,11 +1597,26 @@ function toggleAIChat() {{
   document.getElementById('ai-chat-panel').classList.toggle('open');
 }}
 
+function renderMarkdown(text) {{
+  // Convert markdown to clean HTML for chat bubbles
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^#{1,3} (.+)$/gm, '<p style="font-weight:700;margin:8px 0 4px;">$1</p>')
+    .replace(/^[-•] (.+)$/gm, '<div style="padding-left:10px;margin:3px 0;">• $1</div>')
+    .replace(/\n\n/g, '</p><p style="margin:6px 0">')
+    .replace(/\n/g, '<br/>');
+}}
+
 function appendAIMsg(role, text) {{
   const msgs = document.getElementById('ai-chat-msgs');
   const div = document.createElement('div');
   div.className = 'ai-msg ' + role;
-  div.textContent = text;
+  if (role === 'ai') {{
+    div.innerHTML = '<p style="margin:0">' + renderMarkdown(text) + '</p>';
+  }} else {{
+    div.textContent = text;
+  }}
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
 }}
@@ -1777,6 +1794,129 @@ function analyzeCustomHeadline() {{
 }})();
 
 // ── CONFLICT MAP ─────────────────────────────────────────────────────────────
+// ── HARDCODED GLOBAL EVENTS (permanent markers, always shown) ─────────────────
+const STATIC_EVENTS = [
+  // ── ACTIVE CONFLICTS ──
+  {{ title:"Ukraine–Russia War", coords:[49,32], risk:"HIGH", category:"Active Conflict",
+    region:"Ukraine", trigger:"Full-scale Russian invasion since Feb 2022. Ongoing frontline fighting, drone strikes on infrastructure.",
+    sectors_impacted:"Energy ▲, Defense ▲, Agriculture ▲, Industrials ▼, European equities ▼",
+    asset_impact:"Natural gas ▲, Wheat ▲, Defense stocks ▲, EUR ▼, Gold ▲",
+    market_exposure:"Europe energy prices, global grain supply, NATO defense spending boom, Russian asset freeze.",
+    what_to_watch:"Ceasefire negotiations, US aid continuation, nuclear escalation signals, gas pipeline flows." }},
+  {{ title:"Israel–Gaza / Lebanon War", coords:[31.5,34.8], risk:"HIGH", category:"Active Conflict",
+    region:"Middle East", trigger:"Hamas Oct 7 2023 attack triggered Israeli military campaign in Gaza. Hezbollah ceasefire fragile.",
+    sectors_impacted:"Energy ▲, Defense ▲, Airlines ▼, Regional Tourism ▼",
+    asset_impact:"Oil risk premium ▲, Gold ▲, Defense ▲, Israeli shekel ▼",
+    market_exposure:"Middle East oil supply risk, regional escalation to Iran, shipping via Suez disruption.",
+    what_to_watch:"Iran direct involvement, West Bank escalation, hostage deal, oil facility attacks." }},
+  {{ title:"Red Sea / Houthi Shipping Attacks", coords:[14,43], risk:"HIGH", category:"Supply Chain Disruption",
+    region:"Yemen / Red Sea", trigger:"Houthi rebels attacking commercial vessels since Nov 2023 in solidarity with Gaza. ~15% of global trade rerouted.",
+    sectors_impacted:"Shipping ▲, Energy ▲, Retail ▼, Consumer Goods ▼, Autos ▼",
+    asset_impact:"Shipping rates ▲, Oil ▲, European auto stocks ▼",
+    market_exposure:"Major retailers and manufacturers face 10–14 extra days and 2-3x freight costs rerouting around Africa.",
+    what_to_watch:"US/UK military response, Houthi ceasefire, Suez Canal traffic recovery." }},
+  {{ title:"Sudan Civil War", coords:[15,30], risk:"HIGH", category:"Active Conflict",
+    region:"Sudan", trigger:"SAF vs RSF fighting since April 2023. Khartoum largely destroyed. 8M+ displaced.",
+    sectors_impacted:"Gold mining ▼, Agriculture ▼, Humanitarian aid costs ▲",
+    asset_impact:"Regional instability, minor gold supply disruption",
+    market_exposure:"Sudan is a minor gold and oil producer. Main risk is regional spillover to Egypt and Chad.",
+    what_to_watch:"RSF control of Darfur, Egyptian border tensions, humanitarian corridor." }},
+  {{ title:"Myanmar Civil War", coords:[17,96], risk:"MEDIUM", category:"Active Conflict",
+    region:"Myanmar", trigger:"Military junta vs resistance forces since 2021 coup. Junta losing territory.",
+    sectors_impacted:"Rare earths ▲ (supply disruption), Regional tourism ▼",
+    asset_impact:"Jade and rare earth supply disruption, Thai baht minor impact",
+    market_exposure:"Myanmar supplies ~45% of global jade and significant rare earth minerals used in electronics.",
+    what_to_watch:"China's role supporting junta, rare earth supply disruption, refugee flows to Thailand." }},
+  // ── NUCLEAR / ESCALATION RISK ──
+  {{ title:"Iran Nuclear Program", coords:[32,53], risk:"HIGH", category:"Nuclear Risk",
+    region:"Iran", trigger:"Iran enriching uranium to 60%+ purity. JCPOA dead. Proxy attacks via Houthis, Hezbollah, Iraq militias.",
+    sectors_impacted:"Energy ▲, Defense ▲, Airlines ▼",
+    asset_impact:"Oil ▲▲ (Strait of Hormuz risk), Gold ▲, Defense ▲",
+    market_exposure:"Strait of Hormuz handles ~20% of global oil. Iranian closure would spike oil $20–40/bbl instantly.",
+    what_to_watch:"US/Israel military strikes, Hormuz closure threat, nuclear breakout timeline, sanctions enforcement." }},
+  {{ title:"North Korea Missile Program", coords:[40,127], risk:"MEDIUM", category:"Nuclear Risk",
+    region:"North Korea", trigger:"Record missile tests 2022-2024. ICBM capable of reaching US. Supplying Russia with artillery shells.",
+    sectors_impacted:"Defense ▲, South Korean equities ▼ (periodic)",
+    asset_impact:"Korean won ▼ on escalation, Japanese yen ▲ (safe haven), defense stocks ▲",
+    market_exposure:"Seoul is 35 miles from the DMZ. Any conflict would devastate Samsung, Hyundai, and South Korean supply chains.",
+    what_to_watch:"ICBM tests, nuclear test resumption, Russia-DPRK arms deals, US-China communication." }},
+  {{ title:"Taiwan Strait Tensions", coords:[23.5,121], risk:"HIGH", category:"Nuclear Risk",
+    region:"Taiwan", trigger:"China military encirclement exercises. Xi Jinping has not ruled out force. TSMC produces 90% of advanced chips.",
+    sectors_impacted:"Technology ▼▼▼, Semiconductors ▼▼▼, Defense ▲, Shipping ▼",
+    asset_impact:"NVDA ▼, TSMC ▼, AAPL ▼, Gold ▲, Defense ETFs ▲",
+    market_exposure:"Taiwan produces ~90% of chips under 10nm. Conflict would be the largest supply chain shock in history — worse than COVID.",
+    what_to_watch:"PLA exercises frequency, US arms sales to Taiwan, Xi political signals, TSMC Arizona progress." }},
+  // ── TRADE WARS / SANCTIONS ──
+  {{ title:"US–China Trade War", coords:[35,108], risk:"HIGH", category:"Trade War",
+    region:"China", trigger:"Trump 2.0 tariffs: 145% on Chinese goods. China retaliated 125%. Tech export controls on chips, AI hardware.",
+    sectors_impacted:"Technology ▼, Semiconductors ▼, Retail ▼, Agriculture ▼ (China retaliation)",
+    asset_impact:"AAPL ▼, NVDA ▼, Chinese tech ▼, Soybeans ▼, Gold ▲",
+    market_exposure:"$600B+ in bilateral trade at risk. Apple manufactures ~90% in China. Nvidia banned from selling H100s to China.",
+    what_to_watch:"Trade deal negotiations, semiconductor export controls expansion, China retaliation targets, Apple supply chain." }},
+  {{ title:"Russia Sanctions & Energy Embargo", coords:[55,60], risk:"MEDIUM", category:"Sanctions",
+    region:"Russia", trigger:"Sweeping Western sanctions post-Ukraine invasion. G7 oil price cap at $60/bbl. Russia rerouting exports to India/China.",
+    sectors_impacted:"Energy ▲ (supply reduction), European manufacturing ▼, Fertilizers ▲",
+    asset_impact:"European gas ▲, Fertilizer stocks ▲, Russian debt defaulted",
+    market_exposure:"Russia was Europe's #1 gas supplier. Replacement via LNG adds $30–50B/yr in costs. Fertilizer prices elevated globally.",
+    what_to_watch:"Price cap enforcement, India/China purchase volumes, winter gas storage in Europe, sanctions evasion." }},
+  {{ title:"Venezuela Sanctions & Oil", coords:[8,-66], risk:"LOW", category:"Sanctions",
+    region:"Venezuela", trigger:"US sanctions on PDVSA. Some waivers issued. Maduro remains in power despite contested 2024 election.",
+    sectors_impacted:"Energy (minor supply impact), Latin American equities",
+    asset_impact:"Heavy crude prices ▲ (minor), Caribbean shipping",
+    market_exposure:"Venezuela has world's largest proven reserves but production collapsed from 3M to 700K bbl/day under sanctions.",
+    what_to_watch:"US sanctions waiver renewal, Chevron license, political transition talks." }},
+  // ── SUPPLY CHAIN / COMMODITIES ──
+  {{ title:"OPEC+ Production Decisions", coords:[24,45], risk:"MEDIUM", category:"Commodities",
+    region:"Middle East / OPEC", trigger:"Saudi Arabia + Russia coordinating cuts. OPEC+ extended cuts through 2025. Spare capacity concentrated in Gulf.",
+    sectors_impacted:"Energy ▲, Airlines ▼, Consumer Discretionary ▼, Inflation ▲",
+    asset_impact:"Crude oil ▲, XLE ▲, Airlines ▼, TIP (TIPS) ▲",
+    market_exposure:"OPEC+ controls ~40% of global supply. Saudi can move prices $5–15/bbl with production signals.",
+    what_to_watch:"Monthly OPEC meeting outputs, Saudi fiscal breakeven (~$80/bbl), UAE/Iraq quota compliance." }},
+  {{ title:"Panama Canal Drought Restrictions", coords:[9,-80], risk:"LOW", category:"Supply Chain Disruption",
+    region:"Panama", trigger:"Severe 2023 drought cut Canal transits by 36%. El Niño risk ongoing. Backlog of 150+ ships at peak.",
+    sectors_impacted:"Shipping ▲, LNG ▲, Consumer goods ▼",
+    asset_impact:"Shipping rates ▲, LNG spot prices ▲, Container lines ▲",
+    market_exposure:"Canal handles ~5% of global trade. LNG to Asia and grain to East Coast most impacted by low water.",
+    what_to_watch:"Reservoir water levels, drought forecasts, shipping rate indices (Baltic Dry)." }},
+  {{ title:"Semiconductor Supply Chain Risk", coords:[25,121], risk:"HIGH", category:"Supply Chain Disruption",
+    region:"Taiwan / South Korea", trigger:"TSMC (Taiwan), Samsung (Korea) produce virtually all advanced chips. US CHIPS Act trying to diversify. 3-year+ lead times for new fabs.",
+    sectors_impacted:"Technology ▼ (conflict scenario), Autos ▼, AI infrastructure ▲ (normal times)",
+    asset_impact:"NVDA, AMD, AAPL, TSMC all highly exposed to Taiwan risk",
+    market_exposure:"$500B semiconductor market. A 6-month supply disruption would halt auto production and collapse AI buildout globally.",
+    what_to_watch:"TSMC Arizona fab progress, Intel foundry ramp, export control expansion, Taiwan elections." }},
+  // ── POLITICAL INSTABILITY / DEBT ──
+  {{ title:"Argentina Debt & Currency Crisis", coords:[-34,-64], risk:"MEDIUM", category:"Economic Crisis",
+    region:"Argentina", trigger:"Milei dollarization reforms. $44B IMF debt. Inflation peaked at 211%. Peso devaluation ongoing.",
+    sectors_impacted:"EM bonds ▼, Latin American ETFs ▼, Agriculture (soy exports disruption)",
+    asset_impact:"Argentine peso ▼, Sovereign CDS spiked, Soy export revenue volatile",
+    market_exposure:"Argentina is world's #3 soy exporter. Currency chaos disrupts export taxes and global grain supply.",
+    what_to_watch:"IMF deal compliance, peso peg timeline, FX reserve rebuilding, Milei reform progress." }},
+  {{ title:"Turkey Inflation & Lira Crisis", coords:[39,35], risk:"MEDIUM", category:"Economic Crisis",
+    region:"Turkey", trigger:"Inflation hit 85% in 2022. CBRT now orthodox — rates at 50%. Lira lost 75% vs USD in 3 years.",
+    sectors_impacted:"EM equities ▼, European banks (Eurozone exposure) ▼",
+    asset_impact:"Turkish lira ▼, Turkish bonds ▼, European banks with Turkey exposure ▼",
+    market_exposure:"Turkey is a $900B economy and NATO member. Banking contagion risk to Spain/Italy/France who have large Turkey loan books.",
+    what_to_watch:"Inflation trajectory, CBRT rate decisions, current account deficit, Erdogan political stability." }},
+  {{ title:"Pakistan Economic Crisis", coords:[30,69], risk:"MEDIUM", category:"Economic Crisis",
+    region:"Pakistan", trigger:"IMF bailout secured 2023. FX reserves near zero twice. Political instability — Imran Khan jailed. Default risk receded but fragile.",
+    sectors_impacted:"EM bonds, Regional stability, China CPEC investment risk",
+    asset_impact:"Pakistani rupee ▼, Sovereign bonds volatile",
+    market_exposure:"Nuclear-armed state with 230M people. Default or instability affects China's $60B CPEC investment and regional security.",
+    what_to_watch:"IMF review compliance, FX reserves level, political violence, India-Pakistan border tension." }},
+  {{ title:"China Property Market Collapse", coords:[31,121], risk:"HIGH", category:"Economic Crisis",
+    region:"China", trigger:"Evergrande, Country Garden defaults. $340B+ developer debt. Property sector = 25% of Chinese GDP. Stimulus underwhelming.",
+    sectors_impacted:"Materials ▼, Copper ▼, Iron ore ▼, Luxury goods ▼, Australian exports ▼",
+    asset_impact:"Copper ▼, Iron ore ▼, AUD ▼, Chinese banks ▼, Global luxury stocks ▼",
+    market_exposure:"China consumes 50-60% of global base metals. Property slowdown = structural demand reduction for steel, copper, cement.",
+    what_to_watch:"PBOC stimulus scale, developer debt restructuring, property sales data, local government financing vehicles (LGFVs)." }},
+  {{ title:"Sahel Coups & Africa Instability", coords:[13,2], risk:"MEDIUM", category:"Political Instability",
+    region:"Sahel / West Africa", trigger:"Coups in Niger, Mali, Burkina Faso, Gabon 2022-2023. French forces expelled. Wagner Group active.",
+    sectors_impacted:"Gold mining ▼, Uranium ▲ (Niger), Agricultural commodities",
+    asset_impact:"Uranium prices ▲ (Niger is #7 producer), Gold miners with African exposure ▼",
+    market_exposure:"Niger produces ~5% of global uranium. French nuclear energy directly exposed. Instability disrupts Western mining operations.",
+    what_to_watch:"Wagner Group expansion, ECOWAS response, uranium supply from Niger, French strategic retreat." }},
+];
+
 const REGION_COORDS = {{
   "Middle East": [29, 45], "Ukraine": [49, 32], "Russia": [55, 37],
   "Taiwan": [23.5, 121], "China": [35, 105], "North Korea": [40, 127],
@@ -1798,11 +1938,21 @@ function getCoords(region) {{
   }}
   return [20, 0];
 }}
+
+// Merge static + AI events, deduplicate by proximity
+function getAllEvents() {{
+  const ai = (GEO_RISK_DATA||[]).map(g => ({{...g, coords: getCoords(g.region), _source:'ai'}}));
+  const all = [...STATIC_EVENTS.map(e=>(({{...e,_source:'static'}}))], ...ai];
+  return all;
+}}
+
 let _conflictMap = null;
+let _allEvents = [];
 function initConflictMap() {{
   if (_conflictMap) return;
   const el = document.getElementById('conflict-map');
   if (!el) return;
+  _allEvents = getAllEvents();
   _conflictMap = L.map('conflict-map', {{
     center:[20,15], zoom:2, zoomControl:true,
     worldCopyJump: false,
@@ -1813,32 +1963,37 @@ function initConflictMap() {{
   L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
     attribution:'© OpenStreetMap © CartoDB', subdomains:'abcd', maxZoom:10, noWrap:true
   }}).addTo(_conflictMap);
-  (GEO_RISK_DATA || []).forEach((g, i) => {{
-    const coords = getCoords(g.region);
-    const rl = (g.risk_level||'MEDIUM').toUpperCase();
+  _allEvents.forEach((g, i) => {{
+    const coords = g.coords || getCoords(g.region);
+    const rl = (g.risk_level||'HIGH').toUpperCase();
+    const isAI = g._source === 'ai';
     const color = rl.includes('HIGH') ? '#ef4444' : rl.includes('MED') ? '#f59e0b' : '#22c55e';
     const marker = L.circleMarker(coords, {{
-      radius: rl.includes('HIGH') ? 14 : rl.includes('MED') ? 10 : 8,
-      fillColor: color, color: color, weight: 2,
-      opacity: .9, fillOpacity: .35,
+      radius: rl.includes('HIGH') ? 13 : rl.includes('MED') ? 10 : 7,
+      fillColor: color, color: color, weight: isAI ? 3 : 1.5,
+      opacity: .95, fillOpacity: .3,
+      dashArray: isAI ? '4,3' : null,
     }}).addTo(_conflictMap);
-    marker.bindPopup(`<div style="font-family:Inter,sans-serif;min-width:200px;">
+    const catLabel = g.category ? `<span style="color:#94a3b8;font-size:.7rem;">${{g.category}}</span><br/>` : '';
+    marker.bindPopup(`<div style="font-family:Inter,sans-serif;min-width:220px;">
       <strong style="font-size:.9rem;">${{g.title||'—'}}</strong><br/>
-      <span style="color:#94a3b8;font-size:.75rem;">${{g.region||'—'}}</span><br/>
+      ${{catLabel}}
       <span style="display:inline-block;margin-top:4px;padding:2px 8px;border-radius:3px;font-size:.7rem;font-weight:700;
         background:${{rl.includes('HIGH')?'rgba(239,68,68,.2)':rl.includes('MED')?'rgba(245,158,11,.2)':'rgba(34,197,94,.2)'}};
-        color:${{color}};">${{rl}}</span><br/>
-      <p style="margin:8px 0 0;font-size:.78rem;color:#cbd5e1;line-height:1.5;">${{(g.trigger||'').substring(0,120)}}…</p>
+        color:${{color}};">${{rl}}</span>
+      ${{isAI ? '<span style="margin-left:6px;font-size:.65rem;color:#3b82f6;font-weight:600;">AI</span>' : ''}}<br/>
+      <p style="margin:8px 0 0;font-size:.78rem;color:#cbd5e1;line-height:1.5;">${{(g.trigger||'').substring(0,140)}}…</p>
+      <p style="margin:6px 0 0;font-size:.72rem;color:#64748b;">Click for full analysis ↓</p>
     </div>`, {{ className:'conflict-popup' }});
     marker.on('click', () => showConflictDetail(i));
   }});
   setTimeout(() => _conflictMap.invalidateSize(), 200);
 }}
 function showConflictDetail(i) {{
-  const g = (GEO_RISK_DATA||[])[i];
+  const g = _allEvents[i];
   if (!g) return;
   document.getElementById('cd-title').textContent = g.title||'—';
-  const rl = (g.risk_level||'MEDIUM').toUpperCase();
+  const rl = (g.risk_level||'HIGH').toUpperCase();
   const badge = document.getElementById('cd-risk-badge');
   badge.textContent = rl;
   badge.className = 'badge ' + (rl.includes('HIGH')?'badge-red':rl.includes('MED')?'badge-amber':'badge-green');
@@ -2029,9 +2184,14 @@ def chat():
         return jsonify({"error": "No message", "response": None})
     ctx_str = json_lib.dumps(context, indent=2) if context else ""
     system = (
-        "You are a macro and portfolio analyst. Answer concisely based on real market conditions. "
-        "Be clear, practical, and note uncertainty. This is for education, not financial advice.\n\n"
-        + (f"Current macro context:\n{ctx_str}" if ctx_str else "")
+        "You are a sharp, experienced macro and portfolio analyst. Give direct, well-structured responses. "
+        "Format rules: use **bold** for key terms/numbers, use bullet points with - for lists, "
+        "use short paragraphs separated by blank lines. NO markdown headers (no ##). NO pipe tables. "
+        "Keep responses focused and conversational — like a smart colleague answering quickly. "
+        "Lead with the bottom line, then support it. Be specific about numbers and timeframes. "
+        "Note uncertainty where genuinely relevant but don't over-hedge every statement. "
+        "For education only, not financial advice.\n\n"
+        + (f"Current live macro context:\n{ctx_str}" if ctx_str else "")
     )
     try:
         msg = _client.messages.create(
