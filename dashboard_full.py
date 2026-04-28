@@ -1058,7 +1058,7 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
   </div>
   <div class="hdr-right">
     <div class="live-pill"><div class="live-dot"></div>LIVE DATA</div>
-    <div class="hdr-time">{now}</div>
+    <div class="hdr-time" id="hdr-clock"></div>
   </div>
 </div>
 
@@ -1621,6 +1621,18 @@ function analyzeCustomHeadline() {{
   result.innerHTML = `<div class="ni-badge ${{analysis.overall}}">${{analysis.overall.toUpperCase()}}</div><br/>${{tags || '<span style="color:var(--sub)">No specific sector impact identified</span>'}}`;
   result.style.display = 'block';
 }}
+
+// ── Local clock (updates every second) ───────────────────────────────────────
+(function() {{
+  function updateClock() {{
+    const now = new Date();
+    const opts = {{ weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:true }};
+    const el = document.getElementById('hdr-clock');
+    if (el) el.textContent = now.toLocaleString('en-US', opts);
+  }}
+  updateClock();
+  setInterval(updateClock, 1000);
+}})();
 </script>
 </body>
 </html>"""
