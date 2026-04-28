@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(python -c \"import dotenv; print\\('ok'\\)\")",
+      "Bash(python3 -c \"import dotenv; print\\('dotenv ok'\\)\")",
+      "Bash(python3 -c \"import anthropic; print\\('anthropic ok'\\)\")",
+      "mcp__Claude_in_Chrome__navigate",
+      "WebFetch(domain:www.tradingblock.com)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('portfolio_lab_app.py'\\).read\\(\\)\\); print\\('AST parse OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('portfolio_lab_app.py'\\).read\\(\\)\\); print\\('AST parse OK'\\)\")",
+      "Bash(python3 -c \"from jinja2 import Environment; e = Environment\\(\\); t = e.from_string\\('{{ x|tojson }}'\\); print\\(t.render\\(x='hello world'\\)\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('portfolio_lab_app.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('portfolio_lab_app.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python3 -m py_compile portfolio_lab_app.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(pip3 install *)",
+      "Read(//Users/jakejoseph/Desktop/**)"
+    ]
+  }
+}
