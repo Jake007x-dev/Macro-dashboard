@@ -1122,16 +1122,16 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
   <div class="ntab active" onclick="show('overview',this)">Overview</div>
   <div class="ntab" onclick="show('brief',this)">Morning Brief</div>
   <div class="ntab" onclick="show('regime',this)">Macro Regime</div>
-  <div class="ntab" onclick="show('impact',this)">Market Impact</div>
-  <div class="ntab" onclick="show('geo',this)">Geo Risk</div>
   <div class="ntab" onclick="show('cb',this)">Central Banks</div>
+  <div class="ntab" onclick="show('impact',this)">Market Impact</div>
   <div class="ntab" onclick="show('sectors',this)">Sectors</div>
   <div class="ntab" onclick="show('sentiment',this)">Sentiment</div>
   <div class="ntab" onclick="show('markets',this)">Markets</div>
   <div class="ntab" onclick="show('indicators',this)">Indicators</div>
+  <div class="ntab" onclick="show('geo',this)">Geo Risk</div>
+  <div class="ntab" onclick="show('conflictmap',this)">&#x1F5FA; Conflict Map</div>
   <div class="ntab" onclick="show('news',this)">News Feed</div>
   <div class="ntab" onclick="show('newsimpact',this)">News Impact</div>
-  <div class="ntab" onclick="show('conflictmap',this)">&#x1F5FA; Conflict Map</div>
   <div class="ntab" onclick="show('watchlist',this)">&#x1F4C8; Watchlist</div>
   <div class="ntab" onclick="show('portfolio',this)">&#x1F9EA; Portfolio Lab</div>
 </div>
