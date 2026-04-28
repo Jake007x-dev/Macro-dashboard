@@ -1136,7 +1136,7 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
   <div class="ntab" onclick="show('portfolio',this)">&#x1F9EA; Portfolio Lab</div>
 </div>
 
-<div style="text-align:center;padding:7px 20px;font-size:.72rem;color:#4b5563;border-bottom:1px solid var(--bdr);letter-spacing:.3px;">
+<div style="text-align:center;padding:4px 20px;font-size:.72rem;color:#4b5563;border-bottom:1px solid var(--bdr);letter-spacing:.3px;">
   Developed by <span style="color:#6b7280;font-weight:500;">Jake Joseph</span>
   &nbsp;·&nbsp; <a href="mailto:jakemjoseph@gmail.com" style="color:#6b7280;text-decoration:none;">jakemjoseph@gmail.com</a>
   &nbsp;·&nbsp; <a href="https://linkedin.com/in/jakemarleyjoseph" target="_blank" style="color:#6b7280;text-decoration:none;">linkedin.com/in/jakemarleyjoseph</a>
