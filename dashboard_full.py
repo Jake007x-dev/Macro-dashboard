@@ -1803,9 +1803,15 @@ function initConflictMap() {{
   if (_conflictMap) return;
   const el = document.getElementById('conflict-map');
   if (!el) return;
-  _conflictMap = L.map('conflict-map', {{ center:[20,15], zoom:2, zoomControl:true }});
+  _conflictMap = L.map('conflict-map', {{
+    center:[20,15], zoom:2, zoomControl:true,
+    worldCopyJump: false,
+    maxBounds: [[-85,-180],[85,180]],
+    maxBoundsViscosity: 1.0,
+    minZoom: 2
+  }});
   L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-    attribution:'© OpenStreetMap © CartoDB', subdomains:'abcd', maxZoom:19
+    attribution:'© OpenStreetMap © CartoDB', subdomains:'abcd', maxZoom:10, noWrap:true
   }}).addTo(_conflictMap);
   (GEO_RISK_DATA || []).forEach((g, i) => {{
     const coords = getCoords(g.region);
