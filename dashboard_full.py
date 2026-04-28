@@ -1599,11 +1599,16 @@ function toggleAIChat() {{
 
 function renderMarkdown(text) {{
   // Convert markdown to clean HTML for chat bubbles
+  // Note: avoid regex quantifiers with {{}} — use alternation instead
+  const boldRe   = /\*\*([^*]+)\*\*/g;
+  const italicRe = /\*([^*]+)\*/g;
+  const headerRe = /^#+\s+(.+)$/gm;
+  const bulletRe = /^[-•]\s+(.+)$/gm;
   return text
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/^#{1,3} (.+)$/gm, '<p style="font-weight:700;margin:8px 0 4px;">$1</p>')
-    .replace(/^[-•] (.+)$/gm, '<div style="padding-left:10px;margin:3px 0;">• $1</div>')
+    .replace(boldRe,   '<strong>$1</strong>')
+    .replace(italicRe, '<em>$1</em>')
+    .replace(headerRe, '<p style="font-weight:700;margin:8px 0 4px;">$1</p>')
+    .replace(bulletRe, '<div style="padding-left:10px;margin:3px 0;">• $1</div>')
     .replace(/\n\n/g, '</p><p style="margin:6px 0">')
     .replace(/\n/g, '<br/>');
 }}
