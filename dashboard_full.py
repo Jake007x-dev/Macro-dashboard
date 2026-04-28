@@ -1942,8 +1942,8 @@ function getCoords(region) {{
 // Merge static + AI events, deduplicate by proximity
 function getAllEvents() {{
   const ai = (GEO_RISK_DATA||[]).map(g => ({{...g, coords: getCoords(g.region), _source:'ai'}}));
-  const all = [...STATIC_EVENTS.map(e=>(({{...e,_source:'static'}}))], ...ai];
-  return all;
+  const stat = STATIC_EVENTS.map(e => ({{...e, _source:'static'}}));
+  return [...stat, ...ai];
 }}
 
 let _conflictMap = null;
