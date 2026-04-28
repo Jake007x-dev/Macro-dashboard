@@ -4,3 +4,7 @@ __pycache__/
 *.pyo
 .DS_Store
 dashboard.html
+__pycache__/
+*.pyc
+.claude/
+.DS_Store
