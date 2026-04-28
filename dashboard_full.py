@@ -21,6 +21,7 @@ except:
 
 FRED_API_KEY      = os.environ.get("FRED_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+FINNHUB_API_KEY   = os.environ.get("FINNHUB_API_KEY", "")
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 app = Flask(__name__)
@@ -1900,7 +1901,8 @@ async function wlRefresh() {{
       if (!priceEl) return;
       if (q) {{
         priceEl.textContent = '$' + q.price.toLocaleString('en-US', {{minimumFractionDigits:2,maximumFractionDigits:2}});
-        chgEl.textContent   = (q.chg>=0?'▲ +':'▼ ') + Math.abs(q.chg).toFixed(2) + '%';
+        const liveTag = q.source==='finnhub' ? '<span style="font-size:.6rem;padding:1px 5px;background:rgba(34,197,94,.15);color:var(--green);border-radius:3px;margin-left:6px;vertical-align:middle;">LIVE</span>' : '<span style="font-size:.6rem;padding:1px 5px;background:rgba(245,158,11,.1);color:var(--amber);border-radius:3px;margin-left:6px;vertical-align:middle;">15m</span>';
+        chgEl.innerHTML   = (q.chg>=0?'▲ +':'▼ ') + Math.abs(q.chg).toFixed(2) + '%' + liveTag;
         chgEl.style.color   = q.up ? 'var(--green)' : 'var(--red)';
       }} else {{
         priceEl.textContent = 'N/A'; chgEl.textContent = '—';
@@ -2127,20 +2129,47 @@ def api_chart():
 @app.route("/api/quotes", methods=["POST"])
 def api_quotes():
     tickers = flask_request.get_json(force=True).get("tickers", [])[:60]
-    def fetch_q(ticker):
+
+    def finnhub_quote(ticker):
+        """Real-time quote via Finnhub (works for stocks/ETFs/forex)."""
+        try:
+            url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={FINNHUB_API_KEY}"
+            r = requests.get(url, timeout=5).json()
+            curr = float(r.get("c", 0))
+            prev = float(r.get("pc", 0))
+            if curr and prev:
+                chg = round(((curr - prev) / prev) * 100, 2)
+                return {"price": round(curr, 2), "chg": chg, "up": chg >= 0, "source": "finnhub"}
+        except:
+            pass
+        return None
+
+    def yf_quote(ticker):
+        """Fallback: yFinance (15-min delayed, handles crypto)."""
         try:
             hist = yf.Ticker(ticker).history(period="2d")
             if len(hist) >= 2:
                 prev = float(hist["Close"].iloc[-2])
                 curr = float(hist["Close"].iloc[-1])
                 chg  = round(((curr - prev) / prev) * 100, 2)
-                return ticker, {"price": round(curr, 2), "chg": chg, "up": chg >= 0}
+                return {"price": round(curr, 2), "chg": chg, "up": chg >= 0, "source": "yfinance"}
             elif len(hist) == 1:
                 curr = float(hist["Close"].iloc[-1])
-                return ticker, {"price": round(curr, 2), "chg": 0.0, "up": True}
+                return {"price": round(curr, 2), "chg": 0.0, "up": True, "source": "yfinance"}
         except:
             pass
-        return ticker, None
+        return None
+
+    def fetch_q(ticker):
+        # Crypto tickers (contain - like BTC-USD) go straight to yFinance
+        # Finnhub handles them differently and free tier is limited
+        is_crypto = "-USD" in ticker or "-USDT" in ticker
+        if FINNHUB_API_KEY and not is_crypto:
+            data = finnhub_quote(ticker)
+            if data and data["price"] > 0:
+                return ticker, data
+        return ticker, yf_quote(ticker)
+
     results = {}
     with ThreadPoolExecutor(max_workers=20) as ex:
         for ticker, data in ex.map(fetch_q, tickers):
