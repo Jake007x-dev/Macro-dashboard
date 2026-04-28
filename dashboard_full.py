@@ -1575,6 +1575,8 @@ function show(id,el){{
   document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
   el.classList.add('active');
+  if (id === 'conflictmap') setTimeout(initConflictMap, 150);
+  if (id === 'watchlist')   {{ wlRender(); wlRefresh(); }}
 }}
 
 function toggleGeo(i){{
@@ -1842,14 +1844,7 @@ function showConflictDetail(i) {{
   document.getElementById('conflict-detail').style.display = 'block';
   document.getElementById('conflict-detail').scrollIntoView({{behavior:'smooth',block:'nearest'}});
 }}
-// Init map when tab is opened
-const _origShow = typeof show !== 'undefined' ? show : null;
-document.querySelectorAll('.ntab').forEach(tab => {{
-  tab.addEventListener('click', () => {{
-    if (tab.textContent.includes('Conflict')) setTimeout(initConflictMap, 100);
-    if (tab.textContent.includes('Watchlist')) wlRender();
-  }});
-}});
+// Map + watchlist init is handled inside show() above
 
 // ── WATCHLIST ─────────────────────────────────────────────────────────────────
 const WL_KEY = 'macro_watchlist_v1';
