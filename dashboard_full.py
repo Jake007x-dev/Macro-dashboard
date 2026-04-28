@@ -4,6 +4,7 @@ import feedparser
 import yfinance as yf
 import numpy as np
 import time
+import threading
 from datetime import datetime
 from flask import Flask, jsonify, request as flask_request
 import os
@@ -25,6 +26,8 @@ app = Flask(__name__)
 # In-memory cache
 _cache: dict = {"html": None, "analysis": None, "macro": None, "headlines": None, "markets": None, "ts": 0.0}
 _TTL = 7200  # 2 hours
+_building = False
+_build_lock = threading.Lock()
 
 IMPACT_RULES = [
     {"keywords": ["oil", "crude", "opec", "petroleum", "energy prices"],
@@ -318,32 +321,99 @@ Requirements: 5 top_drivers, 6 cross_asset (Equities Yields Oil Gold USD VIX), 6
 
 
 def get_or_build_html():
-    global _cache
+    global _cache, _building
     if _cache["html"] and time.time() - _cache["ts"] < _TTL:
         return _cache["html"]
-    print("[ 1/5 ] Fetching FRED macro indicators...")
-    macro = fetch_macro()
-    print("[ 2/5 ] Fetching news headlines...")
-    headlines = fetch_news()
-    print("[ 3/5 ] Fetching market prices...")
-    markets = fetch_markets()
-    print("[ 4/5 ] Fetching chart history...")
-    chart_data = fetch_chart_data()
-    sparklines = fetch_sparklines()
-    print("[ 5/5 ] Running AI analysis...")
-    try:
-        analysis = run_all_agents(macro, headlines, markets)
-    except Exception as e:
-        print(f"  Analysis error: {e}")
-        analysis = {k: "{}" if k not in ("impact_cards","geo_risk","cb_watch","sector_map","news_bias") else "[]"
-                    for k in ("macro_regime","impact_cards","geo_risk","cb_watch","sector_map","sentiment","strategist","news_bias")}
-    html = build_html(macro, headlines, markets, analysis, chart_data, sparklines)
-    _cache["html"] = html
-    _cache["macro"] = macro
-    _cache["headlines"] = headlines
-    _cache["ts"] = time.time()
-    print("  Done.")
-    return html
+    with _build_lock:
+        # Double-check after acquiring lock
+        if _cache["html"] and time.time() - _cache["ts"] < _TTL:
+            return _cache["html"]
+        _building = True
+        try:
+            print("[ 1/5 ] Fetching FRED macro indicators...")
+            macro = fetch_macro()
+            print("[ 2/5 ] Fetching news headlines...")
+            headlines = fetch_news()
+            print("[ 3/5 ] Fetching market prices...")
+            markets = fetch_markets()
+            print("[ 4/5 ] Fetching chart history...")
+            chart_data = fetch_chart_data()
+            sparklines = fetch_sparklines()
+            print("[ 5/5 ] Running AI analysis...")
+            try:
+                analysis = run_all_agents(macro, headlines, markets)
+            except Exception as e:
+                print(f"  Analysis error: {e}")
+                analysis = {k: "{}" if k not in ("impact_cards","geo_risk","cb_watch","sector_map","news_bias") else "[]"
+                            for k in ("macro_regime","impact_cards","geo_risk","cb_watch","sector_map","sentiment","strategist","news_bias")}
+            html = build_html(macro, headlines, markets, analysis, chart_data, sparklines)
+            _cache["html"] = html
+            _cache["macro"] = macro
+            _cache["headlines"] = headlines
+            _cache["ts"] = time.time()
+            print("  Done.")
+        finally:
+            _building = False
+    return _cache["html"]
+
+
+def _start_background_build():
+    """Fire-and-forget: warm the cache in a background thread so the first HTTP request returns instantly."""
+    def _run():
+        try:
+            get_or_build_html()
+        except Exception as e:
+            print(f"Background build failed: {e}")
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+_LOADING_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Macro Dashboard — Loading…</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0a0a0f;color:#e2e8f0;font-family:'Inter',sans-serif;
+       display:flex;flex-direction:column;align-items:center;justify-content:center;
+       min-height:100vh;text-align:center;gap:24px}
+  .logo{font-size:2rem;font-weight:700;letter-spacing:-.5px}
+  .logo span{color:#3b82f6}
+  .spinner{width:48px;height:48px;border:3px solid #1e293b;border-top-color:#3b82f6;
+           border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .msg{color:#94a3b8;font-size:.95rem;max-width:360px;line-height:1.6}
+  .steps{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  .step{font-size:.8rem;color:#64748b;display:flex;align-items:center;gap:8px}
+  .dot{width:6px;height:6px;border-radius:50%;background:#3b82f6;
+       animation:pulse 1.5s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+</style>
+</head>
+<body>
+<div class="logo">Macro<span>Dashboard</span></div>
+<div class="spinner"></div>
+<div class="msg">
+  Fetching live market data &amp; running AI analysis…<br>
+  <strong style="color:#e2e8f0">This takes about 60–90 seconds on first load.</strong>
+</div>
+<div class="steps">
+  <div class="step"><div class="dot"></div>Pulling FRED economic indicators</div>
+  <div class="step"><div class="dot" style="animation-delay:.3s"></div>Fetching market prices &amp; news</div>
+  <div class="step"><div class="dot" style="animation-delay:.6s"></div>Running Claude AI macro analysis</div>
+</div>
+<script>
+  (function poll(){
+    fetch('/api/status').then(r=>r.json()).then(d=>{
+      if(d.ready){ window.location.reload(); }
+      else { setTimeout(poll, 4000); }
+    }).catch(()=>setTimeout(poll,5000));
+  })();
+</script>
+</body>
+</html>"""
 
 
 def run_agent(client, system_prompt, user_content, max_tokens=2000):
@@ -1518,10 +1588,17 @@ function analyzeCustomHeadline() {{
 
 # ── FLASK ROUTES ──────────────────────────────────────────────────────────────
 
+@app.route("/api/status")
+def api_status():
+    ready = bool(_cache["html"] and time.time() - _cache["ts"] < _TTL)
+    return jsonify({"ready": ready, "building": _building})
+
+
 @app.route("/")
 def index():
-    html = get_or_build_html()
-    return html
+    if not _cache["html"]:
+        return _LOADING_HTML
+    return _cache["html"]
 
 
 @app.route("/api/refresh", methods=["POST"])
@@ -1605,6 +1682,9 @@ def stress_test():
 
     return jsonify({"periods": results})
 
+
+# ── STARTUP: warm cache in background so first HTTP request is instant ─────────
+_start_background_build()
 
 if __name__ == "__main__":
     print("Starting Macro Dashboard server...")
