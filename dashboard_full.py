@@ -6,7 +6,8 @@ import numpy as np
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, request as flask_request
 import os
 import json as json_lib
@@ -26,9 +27,18 @@ app = Flask(__name__)
 
 # In-memory cache
 _cache: dict = {"html": None, "analysis": None, "macro": None, "headlines": None, "markets": None, "ts": 0.0}
-_TTL = 7200  # 2 hours
 _building = False
 _build_lock = threading.Lock()
+
+def _cache_ttl():
+    """Expire at 4:30 PM ET (market close) or midnight ET — whichever is sooner from now."""
+    et = ZoneInfo("America/New_York")
+    now = datetime.now(et)
+    market_close = now.replace(hour=16, minute=30, second=0, microsecond=0)
+    midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    if now < market_close:
+        return max((market_close - now).total_seconds(), 300)
+    return max((midnight - now).total_seconds(), 300)
 
 IMPACT_RULES = [
     {"keywords": ["oil", "crude", "opec", "petroleum", "energy prices"],
@@ -357,11 +367,11 @@ Requirements: 5 top_drivers, 6 cross_asset (Equities Yields Oil Gold USD VIX), 6
 
 def get_or_build_html():
     global _cache, _building
-    if _cache["html"] and time.time() - _cache["ts"] < _TTL:
+    if _cache["html"] and _cache["ts"] > 0 and time.time() < _cache["ts"]:
         return _cache["html"]
     with _build_lock:
         # Double-check after acquiring lock
-        if _cache["html"] and time.time() - _cache["ts"] < _TTL:
+        if _cache["html"] and _cache["ts"] > 0 and time.time() < _cache["ts"]:
             return _cache["html"]
         _building = True
         try:
@@ -389,8 +399,9 @@ def get_or_build_html():
             _cache["html"] = html
             _cache["macro"] = macro
             _cache["headlines"] = headlines
-            _cache["ts"] = time.time()
-            print("[ 4/4 ] Done. Dashboard ready.")
+            _cache["ts"] = time.time() + _cache_ttl()  # expire at market close / midnight ET
+            ttl_mins = int(_cache_ttl() / 60)
+            print(f"[ 4/4 ] Done. Cache expires in ~{ttl_mins} min (market close / midnight ET).")
         finally:
             _building = False
     return _cache["html"]
@@ -524,7 +535,8 @@ def build_html(macro, headlines, markets, analysis, chart_data, sparklines):
     fed=gv("Fed Funds"); unem=gv("Unemployment"); cpi=gv("CPI Index")
     sprd=gv("10Y-2Y"); sent_val=gv("Consumer Sentiment"); wti=gv("WTI")
 
-    sparkline_js = "const sparklineData = " + json_lib.dumps(sparklines) + ";"
+    sparkline_js  = "const sparklineData = " + json_lib.dumps(sparklines) + ";"
+    geo_risk_js   = "const GEO_RISK_DATA = " + json_lib.dumps(geo) + ";"
     fed_labels   = json_lib.dumps([d for d,v in chart_data["fed"]])
     fed_values   = json_lib.dumps([v for d,v in chart_data["fed"]])
     cpi_labels   = json_lib.dumps([d for d,v in chart_data["cpi"]])
@@ -621,6 +633,23 @@ def build_html(macro, headlines, markets, analysis, chart_data, sparklines):
             </div>
           </td>
         </tr>'''
+
+    # Conflict Map tab cards (reuses geo data)
+    geo_cards_html = ""
+    for i, g in enumerate(geo):
+        rl = g.get("risk_level","MEDIUM")
+        rc = risk_cls(rl)
+        geo_cards_html += f'''<div class="card al-r" style="cursor:pointer;" onclick="showConflictDetail({i})">
+          <div class="card-hdr"><span class="card-title">{g.get("title","—")}</span><span class="badge {rc}">{rl}</span></div>
+          <div class="card-body" style="font-size:.83rem;">
+            <div style="color:var(--sub);font-size:.72rem;margin-bottom:4px;">REGION</div>
+            <div style="margin-bottom:8px;font-weight:600;">{g.get("region","—")}</div>
+            <div style="color:var(--sub);font-size:.72rem;margin-bottom:4px;">TRIGGER</div>
+            <div style="margin-bottom:8px;line-height:1.5;">{g.get("trigger","—")}</div>
+            <div style="color:var(--sub);font-size:.72rem;margin-bottom:4px;">SECTORS IMPACTED</div>
+            <div style="color:var(--amber);">{g.get("sectors_impacted","—")}</div>
+          </div>
+        </div>'''
 
     # ── CENTRAL BANKS ─────────────────────────────────────────────────────────
     cb_html = ""
@@ -1040,6 +1069,26 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
 .ni-sec-tag.neg{{background:rgba(239,68,68,.1);color:var(--red);}}
 .custom-ni-row{{display:flex;gap:8px;margin-bottom:14px;}}
 .custom-ni-input{{flex:1;background:#0d0d0d;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:9px 12px;font:inherit;font-size:12px;}}
+/* WATCHLIST */
+.wl-row{{cursor:pointer;transition:background .15s;}}
+.wl-row:hover{{background:var(--s2)!important;}}
+.wl-row td{{padding:11px 16px;border-bottom:1px solid var(--bdr);font-size:.875rem;}}
+.wl-price{{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;}}
+.wl-chg{{text-align:right;font-weight:600;font-variant-numeric:tabular-nums;}}
+.wl-chart-btn{{text-align:center;}}
+.wl-chart-btn button{{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);color:var(--blue);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:.75rem;}}
+.wl-chart-btn button:hover{{background:rgba(59,130,246,.22);}}
+.wl-del{{text-align:center;}}
+.wl-del button{{background:none;border:none;color:var(--sub);cursor:pointer;font-size:.85rem;padding:4px 8px;border-radius:4px;}}
+.wl-del button:hover{{color:var(--red);background:rgba(239,68,68,.08);}}
+/* CHART MODAL */
+.cp-btn{{background:var(--s1);border:1px solid var(--bdr);color:var(--sub);padding:5px 14px;border-radius:5px;cursor:pointer;font-size:.8rem;transition:all .15s;}}
+.cp-btn:hover,.cp-btn.active{{background:#3b82f6;border-color:#3b82f6;color:#fff;}}
+/* LEAFLET overrides */
+.leaflet-container{{background:#0d1117!important;}}
+.leaflet-tile{{filter:brightness(.7) saturate(.5);}}
+.conflict-popup .leaflet-popup-content-wrapper{{background:var(--s1);border:1px solid var(--bdr);color:var(--fg);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.6);}}
+.conflict-popup .leaflet-popup-tip{{background:var(--s1);}}
 </style>
 </head>
 <body>
@@ -1079,6 +1128,8 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
   <div class="ntab" onclick="show('indicators',this)">Indicators</div>
   <div class="ntab" onclick="show('news',this)">News Feed</div>
   <div class="ntab" onclick="show('newsimpact',this)">News Impact</div>
+  <div class="ntab" onclick="show('conflictmap',this)">&#x1F5FA; Conflict Map</div>
+  <div class="ntab" onclick="show('watchlist',this)">&#x1F4C8; Watchlist</div>
   <div class="ntab" onclick="show('portfolio',this)">&#x1F9EA; Portfolio Lab</div>
 </div>
 
@@ -1292,6 +1343,93 @@ body{{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:1
   </div>
 </div></div>
 
+<!-- ═══ CONFLICT MAP ═══ -->
+<div id="tab-conflictmap" class="tab"><div class="wrap">
+  <div class="sec-hdr-row">
+    <div><div class="sec-hdr">Global Conflict &amp; Geopolitical Risk Map</div>
+    <div class="sec-sub">AI-identified hotspots and their market implications — click any marker for details</div></div>
+  </div>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <div id="conflict-map" style="height:480px;border-radius:12px;overflow:hidden;border:1px solid var(--bdr);"></div>
+  <div id="conflict-detail" style="display:none;margin-top:16px;" class="card al-r">
+    <div class="card-hdr"><span class="card-title" id="cd-title"></span><span class="badge" id="cd-risk-badge"></span></div>
+    <div class="card-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;font-size:.85rem;">
+        <div><div style="color:var(--sub);font-size:.75rem;margin-bottom:4px;">TRIGGER</div><div id="cd-trigger"></div></div>
+        <div><div style="color:var(--sub);font-size:.75rem;margin-bottom:4px;">SECTORS IMPACTED</div><div id="cd-sectors"></div></div>
+        <div><div style="color:var(--sub);font-size:.75rem;margin-bottom:4px;">ASSET IMPACT</div><div id="cd-assets"></div></div>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr);">
+        <div style="color:var(--sub);font-size:.75rem;margin-bottom:4px;">MARKET EXPOSURE</div>
+        <div id="cd-exposure" style="font-size:.85rem;line-height:1.6;"></div>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr);">
+        <div style="color:var(--sub);font-size:.75rem;margin-bottom:4px;">WHAT TO WATCH</div>
+        <div id="cd-watch" style="font-size:.85rem;line-height:1.6;color:var(--amber);"></div>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-top:20px;">
+    {geo_cards_html}
+  </div>
+</div></div>
+
+<!-- ═══ WATCHLIST ═══ -->
+<div id="tab-watchlist" class="tab"><div class="wrap">
+  <div class="sec-hdr-row" style="flex-wrap:wrap;gap:12px;">
+    <div><div class="sec-hdr">My Watchlist</div>
+    <div class="sec-sub">Saved tickers — prices update on page load. Click any row to view chart.</div></div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="wl-input" type="text" placeholder="Add ticker (e.g. AAPL)" style="background:var(--s1);border:1px solid var(--bdr);color:var(--fg);padding:8px 12px;border-radius:6px;font-size:.85rem;width:180px;text-transform:uppercase;" onkeydown="if(event.key==='Enter')wlAdd()"/>
+      <button onclick="wlAdd()" style="background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:.85rem;">+ Add</button>
+      <button onclick="wlRefresh()" style="background:var(--s1);color:var(--fg);border:1px solid var(--bdr);padding:8px 14px;border-radius:6px;cursor:pointer;font-size:.85rem;">↻ Refresh</button>
+    </div>
+  </div>
+  <div id="wl-error" style="display:none;color:var(--red);font-size:.85rem;margin-bottom:8px;"></div>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table class="ind-tbl" id="wl-table">
+      <thead><tr style="background:var(--s2);">
+        <th style="padding:10px 16px;text-align:left;color:var(--sub);font-size:.75rem;font-weight:600;">TICKER</th>
+        <th style="padding:10px 16px;text-align:right;color:var(--sub);font-size:.75rem;font-weight:600;">PRICE</th>
+        <th style="padding:10px 16px;text-align:right;color:var(--sub);font-size:.75rem;font-weight:600;">CHANGE</th>
+        <th style="padding:10px 16px;text-align:center;color:var(--sub);font-size:.75rem;font-weight:600;">CHART</th>
+        <th style="padding:10px 16px;text-align:center;color:var(--sub);font-size:.75rem;font-weight:600;"></th>
+      </tr></thead>
+      <tbody id="wl-body"></tbody>
+    </table>
+  </div>
+  <div id="wl-empty" style="text-align:center;padding:48px;color:var(--sub);display:none;">
+    No tickers saved yet. Add one above (e.g. AAPL, SPY, NVDA, BTC-USD).
+  </div>
+</div></div>
+
+<!-- ═══ STOCK CHART MODAL ═══ -->
+<div id="chart-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:var(--bg);border:1px solid var(--bdr);border-radius:14px;width:min(860px,96vw);padding:24px;position:relative;">
+    <button onclick="closeChartModal()" style="position:absolute;top:14px;right:14px;background:var(--s1);border:1px solid var(--bdr);color:var(--fg);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:1rem;line-height:1;">✕</button>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px;">
+      <span id="cm-ticker" style="font-size:1.3rem;font-weight:700;"></span>
+      <span id="cm-name" style="font-size:.85rem;color:var(--sub);"></span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:16px;">
+      <span id="cm-price" style="font-size:1.6rem;font-weight:700;"></span>
+      <span id="cm-chg" style="font-size:.95rem;font-weight:600;"></span>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="cp-btn active" onclick="loadChart(null,'1w',this)">1W</button>
+      <button class="cp-btn" onclick="loadChart(null,'1m',this)">1M</button>
+      <button class="cp-btn" onclick="loadChart(null,'3m',this)">3M</button>
+      <button class="cp-btn" onclick="loadChart(null,'6m',this)">6M</button>
+      <button class="cp-btn" onclick="loadChart(null,'1y',this)">1Y</button>
+      <button class="cp-btn" onclick="loadChart(null,'5y',this)">5Y</button>
+      <button class="cp-btn" onclick="loadChart(null,'max',this)">MAX</button>
+    </div>
+    <div id="cm-loading" style="text-align:center;padding:40px;color:var(--sub);">Loading…</div>
+    <canvas id="cm-canvas" style="display:none;max-height:320px;"></canvas>
+  </div>
+</div>
+
 <!-- ═══ PORTFOLIO LAB ═══ -->
 <div id="tab-portfolio" class="tab"><div class="wrap">
   <div class="sec-hdr-row">
@@ -1373,6 +1511,7 @@ GOOGL,10</textarea>
 
 <script>
 {sparkline_js}
+{geo_risk_js}
 
 const sparkOpts = (color, fill) => ({{
   responsive: true,
@@ -1633,6 +1772,224 @@ function analyzeCustomHeadline() {{
   updateClock();
   setInterval(updateClock, 1000);
 }})();
+
+// ── CONFLICT MAP ─────────────────────────────────────────────────────────────
+const REGION_COORDS = {{
+  "Middle East": [29, 45], "Ukraine": [49, 32], "Russia": [55, 37],
+  "Taiwan": [23.5, 121], "China": [35, 105], "North Korea": [40, 127],
+  "South China Sea": [12, 115], "Iran": [32, 53], "Israel": [31.5, 35],
+  "Gaza": [31.4, 34.3], "Syria": [35, 38], "Yemen": [15.5, 48],
+  "Africa": [5, 20], "Sahel": [15, 5], "Sudan": [15, 30],
+  "India-Pakistan": [28, 70], "Venezuela": [8, -66], "Haiti": [19, -72],
+  "Kosovo": [42.6, 20.9], "Armenia-Azerbaijan": [40, 47],
+  "Ethiopia": [9, 40], "Myanmar": [17, 96], "Libya": [27, 17],
+  "Eastern Europe": [50, 30], "Europe": [50, 15], "Asia": [34, 100],
+  "Latin America": [-10, -60], "North Africa": [27, 15],
+  "Southeast Asia": [10, 110], "Central Asia": [42, 63],
+}};
+function getCoords(region) {{
+  if (!region) return [20, 0];
+  for (const [key, coords] of Object.entries(REGION_COORDS)) {{
+    if (region.toLowerCase().includes(key.toLowerCase()) ||
+        key.toLowerCase().includes(region.toLowerCase())) return coords;
+  }}
+  return [20, 0];
+}}
+let _conflictMap = null;
+function initConflictMap() {{
+  if (_conflictMap) return;
+  const el = document.getElementById('conflict-map');
+  if (!el) return;
+  _conflictMap = L.map('conflict-map', {{ center:[20,15], zoom:2, zoomControl:true }});
+  L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+    attribution:'© OpenStreetMap © CartoDB', subdomains:'abcd', maxZoom:19
+  }}).addTo(_conflictMap);
+  (GEO_RISK_DATA || []).forEach((g, i) => {{
+    const coords = getCoords(g.region);
+    const rl = (g.risk_level||'MEDIUM').toUpperCase();
+    const color = rl.includes('HIGH') ? '#ef4444' : rl.includes('MED') ? '#f59e0b' : '#22c55e';
+    const marker = L.circleMarker(coords, {{
+      radius: rl.includes('HIGH') ? 14 : rl.includes('MED') ? 10 : 8,
+      fillColor: color, color: color, weight: 2,
+      opacity: .9, fillOpacity: .35,
+    }}).addTo(_conflictMap);
+    marker.bindPopup(`<div style="font-family:Inter,sans-serif;min-width:200px;">
+      <strong style="font-size:.9rem;">${{g.title||'—'}}</strong><br/>
+      <span style="color:#94a3b8;font-size:.75rem;">${{g.region||'—'}}</span><br/>
+      <span style="display:inline-block;margin-top:4px;padding:2px 8px;border-radius:3px;font-size:.7rem;font-weight:700;
+        background:${{rl.includes('HIGH')?'rgba(239,68,68,.2)':rl.includes('MED')?'rgba(245,158,11,.2)':'rgba(34,197,94,.2)'}};
+        color:${{color}};">${{rl}}</span><br/>
+      <p style="margin:8px 0 0;font-size:.78rem;color:#cbd5e1;line-height:1.5;">${{(g.trigger||'').substring(0,120)}}…</p>
+    </div>`, {{ className:'conflict-popup' }});
+    marker.on('click', () => showConflictDetail(i));
+  }});
+  setTimeout(() => _conflictMap.invalidateSize(), 200);
+}}
+function showConflictDetail(i) {{
+  const g = (GEO_RISK_DATA||[])[i];
+  if (!g) return;
+  document.getElementById('cd-title').textContent = g.title||'—';
+  const rl = (g.risk_level||'MEDIUM').toUpperCase();
+  const badge = document.getElementById('cd-risk-badge');
+  badge.textContent = rl;
+  badge.className = 'badge ' + (rl.includes('HIGH')?'badge-red':rl.includes('MED')?'badge-amber':'badge-green');
+  document.getElementById('cd-trigger').textContent   = g.trigger||'—';
+  document.getElementById('cd-sectors').textContent   = g.sectors_impacted||'—';
+  document.getElementById('cd-assets').textContent    = g.asset_impact||'—';
+  document.getElementById('cd-exposure').textContent  = g.market_exposure||'—';
+  document.getElementById('cd-watch').textContent     = g.what_to_watch||'—';
+  document.getElementById('conflict-detail').style.display = 'block';
+  document.getElementById('conflict-detail').scrollIntoView({{behavior:'smooth',block:'nearest'}});
+}}
+// Init map when tab is opened
+const _origShow = typeof show !== 'undefined' ? show : null;
+document.querySelectorAll('.ntab').forEach(tab => {{
+  tab.addEventListener('click', () => {{
+    if (tab.textContent.includes('Conflict')) setTimeout(initConflictMap, 100);
+    if (tab.textContent.includes('Watchlist')) wlRender();
+  }});
+}});
+
+// ── WATCHLIST ─────────────────────────────────────────────────────────────────
+const WL_KEY = 'macro_watchlist_v1';
+function wlLoad() {{ try {{ return JSON.parse(localStorage.getItem(WL_KEY)||'[]'); }} catch{{return [];}} }}
+function wlSave(list) {{ localStorage.setItem(WL_KEY, JSON.stringify(list)); }}
+function wlAdd() {{
+  const input = document.getElementById('wl-input');
+  const ticker = (input.value||'').trim().toUpperCase().replace(/[^A-Z0-9.\-^=]/g,'');
+  if (!ticker) return;
+  const list = wlLoad();
+  if (list.includes(ticker)) {{ input.value=''; return; }}
+  list.push(ticker);
+  wlSave(list);
+  input.value = '';
+  wlRender();
+  wlRefresh();
+}}
+function wlRemove(ticker) {{
+  wlSave(wlLoad().filter(t => t !== ticker));
+  wlRender();
+}}
+function wlRender() {{
+  const list = wlLoad();
+  const body = document.getElementById('wl-body');
+  const empty = document.getElementById('wl-empty');
+  if (!body) return;
+  if (!list.length) {{ body.innerHTML=''; empty.style.display='block'; return; }}
+  empty.style.display = 'none';
+  body.innerHTML = list.map(t => `
+    <tr class="wl-row" id="wl-row-${{t}}">
+      <td style="font-weight:700;font-size:.95rem;letter-spacing:.5px;">${{t}}</td>
+      <td class="wl-price" id="wl-price-${{t}}">—</td>
+      <td class="wl-chg" id="wl-chg-${{t}}">—</td>
+      <td class="wl-chart-btn"><button onclick="openChartModal('${{t}}')">📈 Chart</button></td>
+      <td class="wl-del"><button onclick="wlRemove('${{t}}')" title="Remove">✕</button></td>
+    </tr>`).join('');
+}}
+async function wlRefresh() {{
+  const list = wlLoad();
+  if (!list.length) return;
+  const errEl = document.getElementById('wl-error');
+  try {{
+    const resp = await fetch('/api/quotes', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{tickers:list}})}});
+    const data = await resp.json();
+    list.forEach(t => {{
+      const q = data[t];
+      const priceEl = document.getElementById('wl-price-'+t);
+      const chgEl   = document.getElementById('wl-chg-'+t);
+      if (!priceEl) return;
+      if (q) {{
+        priceEl.textContent = '$' + q.price.toLocaleString('en-US', {{minimumFractionDigits:2,maximumFractionDigits:2}});
+        chgEl.textContent   = (q.chg>=0?'▲ +':'▼ ') + Math.abs(q.chg).toFixed(2) + '%';
+        chgEl.style.color   = q.up ? 'var(--green)' : 'var(--red)';
+      }} else {{
+        priceEl.textContent = 'N/A'; chgEl.textContent = '—';
+      }}
+    }});
+    if (errEl) errEl.style.display='none';
+  }} catch(e) {{
+    if (errEl) {{ errEl.textContent='Could not fetch quotes: '+e.message; errEl.style.display='block'; }}
+  }}
+}}
+
+// ── STOCK CHART MODAL ────────────────────────────────────────────────────────
+let _chartInstance = null;
+let _chartTicker   = null;
+function openChartModal(ticker) {{
+  _chartTicker = ticker;
+  document.getElementById('chart-modal').style.display = 'flex';
+  document.getElementById('cm-ticker').textContent = ticker;
+  document.getElementById('cm-name').textContent   = '';
+  document.getElementById('cm-price').textContent  = '';
+  document.getElementById('cm-chg').textContent    = '';
+  document.querySelectorAll('.cp-btn').forEach((b,i) => b.classList.toggle('active', i===2)); // default 3M
+  loadChart(ticker, '3m', null);
+}}
+function closeChartModal() {{
+  document.getElementById('chart-modal').style.display = 'none';
+  if (_chartInstance) {{ _chartInstance.destroy(); _chartInstance = null; }}
+}}
+async function loadChart(ticker, period, btn) {{
+  const t = ticker || _chartTicker;
+  if (!t) return;
+  _chartTicker = t;
+  if (btn) {{ document.querySelectorAll('.cp-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); }}
+  const loading = document.getElementById('cm-loading');
+  const canvas  = document.getElementById('cm-canvas');
+  loading.style.display = 'block'; canvas.style.display = 'none';
+  if (_chartInstance) {{ _chartInstance.destroy(); _chartInstance = null; }}
+  try {{
+    const resp = await fetch(`/api/chart?ticker=${{encodeURIComponent(t)}}&period=${{period}}`);
+    const d = await resp.json();
+    if (d.error) {{ loading.textContent = 'Error: ' + d.error; return; }}
+    document.getElementById('cm-ticker').textContent = d.ticker;
+    document.getElementById('cm-name').textContent   = d.name;
+    const chgColor = d.chg >= 0 ? 'var(--green)' : 'var(--red)';
+    document.getElementById('cm-price').textContent  = '$' + (d.current||0).toLocaleString('en-US',{{minimumFractionDigits:2}});
+    document.getElementById('cm-chg').textContent    = (d.chg>=0?'▲ +':'▼ ')+Math.abs(d.chg).toFixed(2)+'%';
+    document.getElementById('cm-chg').style.color    = chgColor;
+    loading.style.display = 'none'; canvas.style.display = 'block';
+    const lineColor = d.chg >= 0 ? '#22c55e' : '#ef4444';
+    const ctx = canvas.getContext('2d');
+    _chartInstance = new Chart(ctx, {{
+      type: 'line',
+      data: {{
+        labels: d.dates,
+        datasets: [{{ label: d.ticker, data: d.closes,
+          borderColor: lineColor, backgroundColor: lineColor+'18',
+          borderWidth: 2, pointRadius: 0, fill: true, tension: .3 }}]
+      }},
+      options: {{
+        responsive:true, maintainAspectRatio:true,
+        plugins:{{ legend:{{display:false}}, tooltip:{{
+          callbacks:{{ label: ctx => '$' + ctx.parsed.y.toLocaleString('en-US',{{minimumFractionDigits:2}}) }}
+        }} }},
+        scales:{{
+          x:{{ ticks:{{color:'#64748b',maxTicksLimit:8,maxRotation:0}}, grid:{{color:'rgba(255,255,255,.04)'}} }},
+          y:{{ ticks:{{color:'#64748b',callback:v=>'$'+v.toLocaleString()}}, grid:{{color:'rgba(255,255,255,.06)'}} }}
+        }}
+      }}
+    }});
+  }} catch(e) {{
+    loading.textContent = 'Failed to load chart: ' + e.message;
+  }}
+}}
+// Close modal on backdrop click
+document.getElementById('chart-modal').addEventListener('click', function(e) {{
+  if (e.target === this) closeChartModal();
+}});
+
+// ── Local clock (updates every second) ───────────────────────────────────────
+(function() {{
+  function updateClock() {{
+    const now = new Date();
+    const opts = {{ weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:true }};
+    const el = document.getElementById('hdr-clock');
+    if (el) el.textContent = now.toLocaleString('en-US', opts);
+  }}
+  updateClock();
+  setInterval(updateClock, 1000);
+}})();
 </script>
 </body>
 </html>"""
@@ -1641,7 +1998,7 @@ function analyzeCustomHeadline() {{
 
 @app.route("/api/status")
 def api_status():
-    ready = bool(_cache["html"] and time.time() - _cache["ts"] < _TTL)
+    ready = bool(_cache["html"] and _cache["ts"] > 0 and time.time() < _cache["ts"])
     return jsonify({"ready": ready, "building": _building})
 
 
@@ -1732,6 +2089,63 @@ def stress_test():
             results.append({"name": p["name"], "portfolio_return": None, "spy_return": None})
 
     return jsonify({"periods": results})
+
+
+@app.route("/api/chart")
+def api_chart():
+    ticker = flask_request.args.get("ticker", "").upper().strip()
+    period = flask_request.args.get("period", "3mo")
+    period_map = {"1w":"5d","1m":"1mo","3m":"3mo","6m":"6mo","1y":"1y","5y":"5y","max":"max"}
+    yf_period = period_map.get(period, "3mo")
+    if not ticker:
+        return jsonify({"error": "No ticker"}), 400
+    try:
+        t = yf.Ticker(ticker)
+        hist = t.history(period=yf_period)
+        if len(hist) == 0:
+            return jsonify({"error": "No data found"}), 404
+        name = ticker
+        try:
+            info = t.info
+            name = info.get("longName") or info.get("shortName") or ticker
+        except:
+            pass
+        curr = round(float(hist["Close"].iloc[-1]), 2)
+        prev = round(float(hist["Close"].iloc[-2]), 2) if len(hist) >= 2 else curr
+        chg = round(((curr - prev) / prev) * 100, 2) if prev else 0
+        return jsonify({
+            "ticker": ticker, "name": name,
+            "current": curr, "chg": chg,
+            "dates":  [str(d.date()) for d in hist.index],
+            "closes": [round(float(v), 2) for v in hist["Close"]],
+            "volumes":[int(v) for v in hist["Volume"]],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/quotes", methods=["POST"])
+def api_quotes():
+    tickers = flask_request.get_json(force=True).get("tickers", [])[:60]
+    def fetch_q(ticker):
+        try:
+            hist = yf.Ticker(ticker).history(period="2d")
+            if len(hist) >= 2:
+                prev = float(hist["Close"].iloc[-2])
+                curr = float(hist["Close"].iloc[-1])
+                chg  = round(((curr - prev) / prev) * 100, 2)
+                return ticker, {"price": round(curr, 2), "chg": chg, "up": chg >= 0}
+            elif len(hist) == 1:
+                curr = float(hist["Close"].iloc[-1])
+                return ticker, {"price": round(curr, 2), "chg": 0.0, "up": True}
+        except:
+            pass
+        return ticker, None
+    results = {}
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        for ticker, data in ex.map(fetch_q, tickers):
+            results[ticker] = data
+    return jsonify(results)
 
 
 # ── STARTUP: warm cache in background so first HTTP request is instant ─────────
