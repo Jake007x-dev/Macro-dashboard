@@ -1971,8 +1971,11 @@ function initConflictMap() {{
     maxBoundsViscosity: 1.0,
     minZoom: 2
   }});
-  L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+  L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_nolabels/{{z}}/{{x}}/{{y}}{{r}}.png', {{
     attribution:'© OpenStreetMap © CartoDB', subdomains:'abcd', maxZoom:10, noWrap:true
+  }}).addTo(_conflictMap);
+  L.tileLayer('https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+    attribution:'', subdomains:'abcd', maxZoom:10, noWrap:true, opacity:0.7
   }}).addTo(_conflictMap);
   _allEvents.forEach((g, i) => {{
     const coords = g.coords || getCoords(g.region);
